@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
-from app.api import admin
+from app.api import admin, templates
 
 app = FastAPI()
 
@@ -16,7 +16,9 @@ app.add_middleware(
 
 # Route group
 app.include_router(admin.router, prefix="/admin", tags=["Admin"])
+app.include_router(templates.router, prefix="/api/templates", tags=["Templates"])
 
 @app.get("/")
 def root():
+    print('hello')
     return {"message": "CopyAd API is running"}
