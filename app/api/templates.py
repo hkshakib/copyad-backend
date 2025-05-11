@@ -1,31 +1,35 @@
-from fastapi import APIRouter, Depends, HTTPException
-from app.core.auth import get_current_user
-from app.core.config import settings
-from app.schemas.templates import TemplateCreate, TemplateOut
-from supabase import create_client
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 from typing import List
+from app.core.supabase_client import supabase
 
 router = APIRouter()
-supabase = create_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_ROLE_KEY)
-print("Running")
 
-@router.get("/", response_model=List[TemplateOut])
-def list_templates():
+class Template(BaseModel):
+    id: str
+    name: str
+    platform: str
+    tone: str
+    prompt: str
+    example: str
+    created_at: str
+
+@router.get("/", response_model=List[Template])
+def get_templates():
     try:
-        response = supabase.table("templates").select("*").execute()
+        response = supabase.from_("templates").select("*").order("created_at", desc=True).execute()
+        if not response.data:
+            return []
         return response.data
     except Exception as e:
-        raise HTTPException(status_code=500, detail="Failed to fetch templates")
+        raise HTTPException(status_code=500, detail="Failed to load templates: " + str(e))
 
-@router.post("/", response_model=TemplateOut)
-def create_template(template: TemplateCreate, user=Depends(get_current_user)):
+@router.get("/{template_id}", response_model=Template)
+def get_template(template_id: str):
     try:
-        response = supabase.table("templates").insert({
-            "name": template.name,
-            "content": template.content
-        }).execute()
-        if response.data:
-            return response.data[0]
-        raise HTTPException(status_code=400, detail="Insert failed")
+        response = supabase.from_("templates").select("*").eq("id", template_id).single().execute()
+        if not response.data:
+            raise HTTPException(status_code=404, detail="Template not found")
+        return response.data
     except Exception as e:
-        raise HTTPException(status_code=500, detail="Failed to create template")
+        raise HTTPException(status_code=500, detail="Failed to fetch template: " + str(e))
