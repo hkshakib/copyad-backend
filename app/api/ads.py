@@ -1,56 +1,89 @@
 from fastapi import APIRouter, Depends, HTTPException
-from app.schemas.ads import AdRequest, AdResponse, AdListResponse
-from app.core.auth import get_current_user
-from app.core.config import settings
-from supabase import create_client
-from app.services.ad_generator import generate_ad_text
+from pydantic import BaseModel
+from typing import List, Optional
+from uuid import uuid4
+from app.core.supabase_client import supabase, get_current_user
 
 router = APIRouter()
-supabase = create_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_ROLE_KEY)
 
-@router.post("/", response_model=AdResponse)
-def generate_ad(data: AdRequest, user=Depends(get_current_user)):
-    # 🧠 Mock ad generation
-    # ad_text = f"Introducing {data.product_name}! Perfect for {data.audience}. {data.goal.capitalize()} today!"
-    ad_text = generate_ad_text(
-        product_name=data.product_name,
-        audience=data.audience,
-        goal=data.goal
-    )
+class AdCreate(BaseModel):
+    platform: str
+    tone: str
+    product: str
+    ad_text: str
+    template_id: Optional[str] = None
+    language: Optional[str] = "en"
 
+class AdUpdate(BaseModel):
+    platform: Optional[str]
+    tone: Optional[str]
+    product: Optional[str]
+    ad_text: Optional[str]
+    template_id: Optional[str]
+    language: Optional[str]
+
+class AdOut(AdCreate):
+    id: str
+    user_id: str
+    created_at: str
+
+@router.post("/", response_model=AdOut)
+def create_ad(ad: AdCreate, user=Depends(get_current_user)):
     try:
+        ad_id = str(uuid4())
         response = supabase.table("generated_ads").insert({
-            "user_id": user["id"],
-            "product_name": data.product_name,
-            "audience": data.audience,
-            "goal": data.goal,
-            "generated_ad": ad_text
+            "id": ad_id,
+            "user_id": user.id,
+            "platform": ad.platform,
+            "tone": ad.tone,
+            "product": ad.product,
+            "ad_text": ad.ad_text,
+            "template_id": ad.template_id,
+            "language": ad.language,
         }).execute()
-
-        if response.data:
-            return response.data[0]
-
-        raise HTTPException(status_code=500, detail="Failed to save ad")
-
+        data = response.data
+        if not data:
+            raise HTTPException(status_code=500, detail="No data returned after insert")
+        return data[0]
     except Exception as e:
-        raise HTTPException(status_code=500, detail="Error generating ad")
+        raise HTTPException(status_code=500, detail="Internal Server Error: " + str(e))
 
-@router.get("/", response_model=AdListResponse)
-def get_user_ads(user=Depends(get_current_user)):
+@router.get("/", response_model=List[AdOut])
+def get_ads(user=Depends(get_current_user)):
     try:
-        response = supabase.table("generated_ads").select("*").eq("user_id", user["id"]).order("created_at", desc=True).execute()
-        return {"ads": response.data}
-    except Exception:
-        raise HTTPException(status_code=500, detail="Failed to fetch ads")
+        response = supabase.from_("generated_ads").select("*").eq("user_id", user.id).order("created_at", desc=True).execute()
+        return response.data
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Internal Server Error: " + str(e))
 
+@router.get("/{ad_id}", response_model=AdOut)
+def get_ad(ad_id: str, user=Depends(get_current_user)):
+    try:
+        response = supabase.from_("generated_ads").select("*").eq("id", ad_id).eq("user_id", user.id).single().execute()
+        if not response.data:
+            raise HTTPException(status_code=404, detail="Ad not found")
+        return response.data
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Error fetching ad: " + str(e))
 
-# import openai
-# openai.api_key = "..."
-#
-# def generate_ad_text(product_name, audience, goal):
-#     prompt = f"Write a short ad for {product_name} targeting {audience} with the goal to {goal}."
-#     response = openai.ChatCompletion.create(
-#         model="gpt-4",
-#         messages=[{"role": "user", "content": prompt}]
-#     )
-#     return response.choices[0].message.content.strip()
+@router.put("/{ad_id}", response_model=AdOut)
+def update_ad(ad_id: str, ad: AdUpdate, user=Depends(get_current_user)):
+    try:
+        update_data = {k: v for k, v in ad.model_dump().items() if v is not None}
+        if not update_data:
+            raise HTTPException(status_code=400, detail="No fields to update")
+
+        response = supabase.table("generated_ads").update(update_data).eq("id", ad_id).eq("user_id", user.id).execute()
+        if not response.data:
+            raise HTTPException(status_code=404, detail="Ad not found or not updated")
+        return response.data[0]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Error updating ad: " + str(e))
+
+@router.delete("/{ad_id}")
+def delete_ad(ad_id: str, user=Depends(get_current_user)):
+    try:
+        response = supabase.from_("generated_ads").delete().eq("id", ad_id).eq("user_id", user.id).execute()
+        return {"message": "Ad deleted successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Error deleting ad: " + str(e))
