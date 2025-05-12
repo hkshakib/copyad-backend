@@ -1,8 +1,12 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Body
 from pydantic import BaseModel
 from typing import List, Optional
 from uuid import uuid4
 from app.core.supabase_client import supabase, get_current_user
+from openai import OpenAI
+import os
+
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 router = APIRouter()
 
@@ -26,6 +30,15 @@ class AdOut(AdCreate):
     id: str
     user_id: str
     created_at: str
+
+class GenerateRequest(BaseModel):
+    template_id: str
+    product: str
+    feature_description: str
+
+class GenerateResponse(BaseModel):
+    prompt: str
+    ad_text: str
 
 @router.post("/", response_model=AdOut)
 def create_ad(ad: AdCreate, user=Depends(get_current_user)):
@@ -87,3 +100,81 @@ def delete_ad(ad_id: str, user=Depends(get_current_user)):
         return {"message": "Ad deleted successfully"}
     except Exception as e:
         raise HTTPException(status_code=500, detail="Error deleting ad: " + str(e))
+
+
+@router.post("/generate", response_model=GenerateResponse)
+def generate_ad(data: GenerateRequest = Body(...), user=Depends(get_current_user)):
+    try:
+        # 1. Fetch template from Supabase
+        template_resp = supabase.from_("templates").select("*").eq("id", data.template_id).single().execute()
+        template = template_resp.data
+        if not template:
+            raise HTTPException(status_code=404, detail="Template not found")
+
+        # 2. Fill the prompt
+        filled_prompt = template["prompt"].format(
+            product=data.product,
+            feature_description=data.feature_description
+        )
+
+        # 3. Generate ad with OpenAI
+        response = client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role": "user", "content": filled_prompt}],
+            max_tokens=120
+        )
+        generated_ad = response.choices[0].message.content.strip()
+
+        # 4. Save the ad to Supabase
+        ad_id = str(uuid4())
+        insert_result = supabase.table("generated_ads").insert({
+            "id": ad_id,
+            "user_id": user.id,
+            "platform": template["platform"],
+            "tone": template["tone"],
+            "product": data.product,
+            "ad_text": generated_ad,
+            "template_id": data.template_id,
+            "language": "en"
+        }).execute()
+
+        if not insert_result.data:
+            raise HTTPException(status_code=500, detail="Failed to save ad")
+
+        # 5. Return preview
+        return {
+            "prompt": filled_prompt,
+            "ad_text": generated_ad
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Error generating ad: " + str(e))
+
+
+@router.post("/custom-generate", response_model=GenerateResponse)
+def custom_generate_ad(data: AdCreate, user=Depends(get_current_user)):
+    try:
+        prompt = f"Write a {data.tone} {data.platform} ad about {data.product} that highlights {data.ad_text}."
+
+        response = client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=120,
+        )
+        generated = response.choices[0].message.content.strip()
+
+        ad_id = str(uuid4())
+        supabase.table("generated_ads").insert({
+            "id": ad_id,
+            "user_id": user.id,
+            "platform": data.platform,
+            "tone": data.tone,
+            "product": data.product,
+            "ad_text": generated,
+            "language": data.language or "en"
+        }).execute()
+
+        return {"prompt": prompt, "ad_text": generated}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Error generating ad: " + str(e))
