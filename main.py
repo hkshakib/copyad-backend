@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
-from app.api import admin, templates, ads
+from app.api import admin, templates, ads, payments, webhook
 
 app = FastAPI()
 
@@ -17,7 +17,10 @@ app.add_middleware(
 # Route group
 app.include_router(admin.router, prefix="/admin", tags=["Admin"])
 app.include_router(templates.router, prefix="/api/templates", tags=["Templates"])
+app.include_router(payments.router, prefix="/api/payments", tags=["Payments"])
 app.include_router(ads.router, prefix="/api/ads", tags=["Ads"])
+
+app.include_router(webhook.router, prefix="/api/webhooks", tags=["Webhooks"])
 
 @app.get("/")
 def root():
