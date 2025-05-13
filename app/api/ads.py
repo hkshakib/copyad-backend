@@ -52,7 +52,37 @@ class GenerateResponse(BaseModel):
 
 
 # ===================== ROUTES =====================
+@router.get("/usage")
+def get_usage(user=Depends(get_current_user)):
+    try:
+        # Count generated ads by this user
+        ads = supabase.from_("generated_ads").select("id").eq("user_id", user.id).execute()
+        usage_count = len(ads.data) if ads.data else 0
 
+        # Get plan from user_profile
+        profile_resp = supabase.from_("user_profile").select("plan").eq("id", user.id).single().execute()
+        plan = "free"  # fallback
+
+        if profile_resp.data and isinstance(profile_resp.data, dict):
+            plan = profile_resp.data.get("plan") or "free"
+
+        # Define limits
+        plan_limit = {
+            "free": 5,
+            "pro": 50,
+            "enterprise": 999
+        }.get(plan, 5)
+
+        return {
+            "plan": plan,
+            "ads_used": usage_count,
+            "ads_remaining": max(0, plan_limit - usage_count),
+            "limit": plan_limit
+        }
+
+    except Exception as e:
+        print("❌ Error in /usage:", str(e))
+        raise HTTPException(status_code=500, detail="Error getting usage: " + str(e))
 @router.post("/", response_model=AdOut)
 def create_ad(ad: AdCreate, user=Depends(get_current_user)):
     try:
@@ -195,3 +225,6 @@ def custom_generate_ad(data: AdCreate, user=Depends(get_current_user)):
     except Exception as e:
         print("❌ Error in /custom-generate:", e)
         raise HTTPException(status_code=500, detail="Error generating ad: " + str(e))
+
+
+
