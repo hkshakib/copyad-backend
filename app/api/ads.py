@@ -17,7 +17,7 @@ class AdCreate(BaseModel):
     platform: str
     tone: str
     product: str
-    ad_text: str
+    description: str
     template_id: Optional[str] = None
     language: Optional[str] = "en"
 
@@ -25,7 +25,7 @@ class AdUpdate(BaseModel):
     platform: Optional[str]
     tone: Optional[str]
     product: Optional[str]
-    ad_text: Optional[str]
+    description: Optional[str]
     template_id: Optional[str]
     language: Optional[str]
 
@@ -43,12 +43,12 @@ class CustomGenerateRequest(BaseModel):
     platform: str
     tone: str
     product: str
-    ad_text: str  # this is treated as "feature"
+    description: str  # this is treated as "feature"
     language: Optional[str] = "en"
 
 class GenerateResponse(BaseModel):
     prompt: str
-    ad_text: str
+    description: str
 
 
 # ===================== ROUTES =====================
@@ -63,7 +63,7 @@ def create_ad(ad: AdCreate, user=Depends(get_current_user)):
             "platform": ad.platform,
             "tone": ad.tone,
             "product": ad.product,
-            "ad_text": ad.ad_text,
+            "description": ad.description,
             "template_id": ad.template_id,
             "language": ad.language,
         }).execute()
@@ -146,7 +146,7 @@ def generate_ad(data: GenerateRequest = Body(...), user=Depends(get_current_user
             "platform": template["platform"],
             "tone": template["tone"],
             "product": data.product,
-            "ad_text": generated_ad,
+            "description": generated_ad,
             "template_id": data.template_id,
             "language": "en"
         }).execute()
@@ -156,7 +156,7 @@ def generate_ad(data: GenerateRequest = Body(...), user=Depends(get_current_user
 
         return {
             "prompt": filled_prompt,
-            "ad_text": generated_ad
+            "description": generated_ad
         }
 
     except Exception as e:
@@ -169,7 +169,7 @@ def custom_generate_ad(data: AdCreate, user=Depends(get_current_user)):
         print("Received data:", data)
         print("User:", user)
 
-        prompt = f"Write a {data.tone} {data.platform} ad about {data.product} that highlights {data.ad_text}."
+        prompt = f"Write a {data.tone} {data.platform} ad about {data.product} that highlights {data.description}."
         print("Generated prompt:", prompt)
 
         response = client.chat.completions.create(
@@ -186,11 +186,11 @@ def custom_generate_ad(data: AdCreate, user=Depends(get_current_user)):
             "platform": data.platform,
             "tone": data.tone,
             "product": data.product,
-            "ad_text": generated,
+            "description": generated,
             "language": data.language or "en"
         }).execute()
 
-        return {"prompt": prompt, "ad_text": generated}
+        return {"prompt": prompt, "description": generated}
 
     except Exception as e:
         print("❌ Error in /custom-generate:", e)

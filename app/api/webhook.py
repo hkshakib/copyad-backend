@@ -62,20 +62,13 @@ async def stripe_webhook(request: Request):
             return {"status": "unhandled_price"}
 
         # ✅ Check if user_profile row exists for user_id
-        existing = supabase.table("user_profile").select("*").eq("id", user_id).execute()
+        # existing = supabase.table("user_profile").select("*").eq("id", user_id).execute()
 
-        if existing.data:
-            print("🔄 Updating existing user_profile row")
-            response = supabase.table("user_profile").update({
-                "plan": plan_name
-            }).eq("id", user_id).execute()
-        else:
-            print("➕ Inserting new user_profile row")
-            response = supabase.table("user_profile").insert({
-                "id": user_id,
-                "email": customer_email,
-                "plan": plan_name
-            }).execute()
+        response = supabase.table("user_profile").upsert({
+            "id": user_id,
+            "email": customer_email,
+            "plan": plan_name
+        }).execute()
 
         print("✅ Supabase response:", response)
 
