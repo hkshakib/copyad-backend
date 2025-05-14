@@ -50,6 +50,24 @@ class GenerateResponse(BaseModel):
     prompt: str
     description: str
 
+# ===================== LIMIT CHECK =====================
+def enforce_ad_limit(user_id: str):
+    profile_resp = supabase.from_("user_profile").select("plan").eq("id", user_id).single().execute()
+    plan = profile_resp.data["plan"] if profile_resp.data else "free"
+
+    plan_limit = {
+        "free": 5,
+        "pro": 100,
+        "enterprise": None
+    }.get(plan, 5)
+
+    # Count how many ads the user has created
+    count_resp = supabase.from_("generated_ads").select("id", count="exact").eq("user_id", user_id).execute()
+    current_count = count_resp.count
+
+    if plan_limit is not None and current_count >= plan_limit:
+        raise HTTPException(status_code=403, detail=f"Ad generation limit reached for '{plan}' plan. Please upgrade.")
+
 
 # ===================== ROUTES =====================
 @router.get("/usage")
@@ -152,6 +170,7 @@ def delete_ad(ad_id: str, user=Depends(get_current_user)):
 @router.post("/generate", response_model=GenerateResponse)
 def generate_ad(data: GenerateRequest = Body(...), user=Depends(get_current_user)):
     try:
+        enforce_ad_limit(user.id)
         template_resp = supabase.from_("templates").select("*").eq("id", data.template_id).single().execute()
         template = template_resp.data
         if not template:
@@ -196,6 +215,7 @@ def generate_ad(data: GenerateRequest = Body(...), user=Depends(get_current_user
 @router.post("/custom-generate", response_model=GenerateResponse)
 def custom_generate_ad(data: AdCreate, user=Depends(get_current_user)):
     try:
+        enforce_ad_limit(user.id)
         print("Received data:", data)
         print("User:", user)
 
