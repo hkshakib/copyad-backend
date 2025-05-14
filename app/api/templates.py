@@ -4,6 +4,7 @@ from typing import List
 from app.core.supabase_client import get_current_user
 from app.core.supabase_client import supabase
 from openai import OpenAI
+from uuid import uuid4
 import os
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
@@ -17,6 +18,13 @@ class Template(BaseModel):
     prompt: str
     example: str
     created_at: str
+
+class TemplateCreate(BaseModel):
+    name: str
+    platform: str
+    tone: str
+    prompt: str
+    example: str
 
 class GenerateRequest(BaseModel):
     template_id: str
@@ -66,7 +74,7 @@ def generate_ad(data: GenerateRequest, user=Depends(get_current_user)):
         # 3. OpenAI generate
         response = client.chat.completions.create(
             model="gpt-3.5-turbo",
-            messages=[{"role": "user", "content": filled_prompt}],
+            messages=[{"role": "user", "content": filled_prompt } ],
             max_tokens=120
         )
         generated = response.choices[0].message.content.strip()
@@ -78,3 +86,23 @@ def generate_ad(data: GenerateRequest, user=Depends(get_current_user)):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail="Error generating ad: " + str(e))
+
+@router.post("/")
+def create_template(template: TemplateCreate, user=Depends(get_current_user)):
+    try:
+        new_id = str(uuid4())
+        response = supabase.table("templates").insert({
+            "id": new_id,
+            "name": template.name,
+            "platform": template.platform,
+            "tone": template.tone,
+            "prompt": template.prompt,
+            "example": template.example
+        }).execute()
+
+        if not response.data:
+            raise HTTPException(status_code=500, detail="Failed to create template")
+
+        return response.data[0]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Error creating template: " + str(e))

@@ -43,3 +43,30 @@ def update_user_role(data: RoleUpdateRequest, current_user: dict = Depends(get_c
         return {"status": "success"}
     except Exception as e:
         raise HTTPException(status_code=500, detail="Failed to update role")
+
+@router.get("/summary")
+def admin_summary(user=Depends(get_current_user)):
+    if user.user_metadata.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    user_stats = supabase.from_("user_profile").select("plan").execute()
+
+    if not user_stats.data:
+        return {"total_users": 0, "plan_distribution": {}}
+
+    plan_counts = {}
+    for user in user_stats.data:
+        plan = user.get("plan", "free")
+        plan_counts[plan] = plan_counts.get(plan, 0) + 1
+
+    return {
+        "total_users": len(user_stats.data),
+        "plan_distribution": plan_counts,
+        "monthly_revenue": (
+            plan_counts.get("pro", 0) * 15 +
+            plan_counts.get("enterprise", 0) * 25
+        ),
+        "active_subscriptions": (
+            plan_counts.get("pro", 0) + plan_counts.get("enterprise", 0)
+        )
+    }
